@@ -1,13 +1,23 @@
+"""Drives a real ChromiumPage through Cloudflare's Turnstile challenge.
+
+Logic UNCHANGED from the old dsk/CloudflareBypasser.py - this is fragile,
+reverse-engineered DOM/shadow-root traversal that works today against a
+specific Cloudflare widget layout; rewriting it risked breaking something
+that took real effort to get right, for no architectural benefit.
+"""
+
 import time
+
 from DrissionPage import ChromiumPage
 
+
 class CloudflareBypasser:
-    def __init__(self, driver: ChromiumPage, max_retries=-1, log=True):
+    def __init__(self, driver: ChromiumPage, max_retries: int = -1, log: bool = True) -> None:
         self.driver = driver
         self.max_retries = max_retries
         self.log = log
 
-    def search_recursively_shadow_root_with_iframe(self,ele):
+    def search_recursively_shadow_root_with_iframe(self, ele):
         if ele.shadow_root:
             if ele.shadow_root.child().tag == "iframe":
                 return ele.shadow_root.child()
@@ -18,7 +28,7 @@ class CloudflareBypasser:
                     return result
         return None
 
-    def search_recursively_shadow_root_with_cf_input(self,ele):
+    def search_recursively_shadow_root_with_cf_input(self, ele):
         if ele.shadow_root:
             if ele.shadow_root.ele("tag:input"):
                 return ele.shadow_root.ele("tag:input")
@@ -28,7 +38,7 @@ class CloudflareBypasser:
                 if result:
                     return result
         return None
-    
+
     def locate_cf_button(self):
         button = None
         eles = self.driver.eles("tag:input")
@@ -37,19 +47,19 @@ class CloudflareBypasser:
                 if "turnstile" in ele.attrs["name"] and ele.attrs["type"] == "hidden":
                     button = ele.parent().shadow_root.child()("tag:body").shadow_root("tag:input")
                     break
-            
+
         if button:
             return button
+
+        # If the button is not found, search it recursively
+        self.log_message("Basic search failed. Searching for button recursively.")
+        ele = self.driver.ele("tag:body")
+        iframe = self.search_recursively_shadow_root_with_iframe(ele)
+        if iframe:
+            button = self.search_recursively_shadow_root_with_cf_input(iframe("tag:body"))
         else:
-            # If the button is not found, search it recursively
-            self.log_message("Basic search failed. Searching for button recursively.")
-            ele = self.driver.ele("tag:body")
-            iframe = self.search_recursively_shadow_root_with_iframe(ele)
-            if iframe:
-                button = self.search_recursively_shadow_root_with_cf_input(iframe("tag:body"))
-            else:
-                self.log_message("Iframe not found. Button search failed.")
-            return button
+            self.log_message("Iframe not found. Button search failed.")
+        return button
 
     def log_message(self, message):
         if self.log:
@@ -63,7 +73,6 @@ class CloudflareBypasser:
                 button.click()
             else:
                 self.log_message("Verification button not found.")
-
         except Exception as e:
             self.log_message(f"Error clicking verification button: {e}")
 
@@ -76,7 +85,6 @@ class CloudflareBypasser:
             return False
 
     def bypass(self):
-        
         try_count = 0
 
         while not self.is_bypassed():

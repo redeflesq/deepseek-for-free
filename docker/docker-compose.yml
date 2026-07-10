@@ -1,0 +1,54 @@
+services:
+  deepseek:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: deepseek4free
+    ports:
+      # FastAPI chat server (server/app.py, uvicorn), exposed on the host so
+      # e.g. mcp-agent can reach it via http://localhost:8018.
+      - "${DEEPSEEK_HOST_PORT:-8018}:8018"
+      # Ollama-compatible API (server/ollama_compat/app.py), exposed so
+      # Ollama-speaking clients (Continue.dev, Open WebUI, langchain's
+      # ChatOllama, etc.) on the host can point apiBase at
+      # http://localhost:11434 directly, without reconfiguration.
+      - "${OLLAMA_COMPAT_HOST_PORT:-11434}:11434"
+    volumes:
+      # Mounts the data directory (cookies.json) so it survives container
+      # restarts/rebuilds - replaces the old ./dsk:/app/dsk mount, which
+      # bind-mounted the whole package source directory just to persist one
+      # file. Now only the runtime data directory is mounted, not source.
+      - ./data:/app/data
+    environment:
+      - DISPLAY=:99 # for the headless bypass browser
+      # No default value here on purpose (unlike the old file, which had a
+      # real auth token hardcoded as the ${VAR:-default} fallback and
+      # visible in plaintext in version control). DEEPSEEK_AUTH_TOKEN must
+      # be provided via a local .env file (see ../.env.example) or the host
+      # environment - the container will start in "degraded" health status
+      # (see /health) without it, not silently authenticate with a stale
+      # shared token.
+      - DEEPSEEK_AUTH_TOKEN=${DEEPSEEK_AUTH_TOKEN:?Set DEEPSEEK_AUTH_TOKEN in your .env file}
+      - DEEPSEEK_DATA_DIR=/app/data
+      - DOCKERMODE=true
+      - SERVER_PORT=8000
+      - FASTAPI_SERVER_PORT=8018
+      - OLLAMA_COMPAT_PORT=11434
+      - ENABLE_OLLAMA_API=${ENABLE_OLLAMA_API:-true}
+      # How long to wait for the Cloudflare-bypass service before treating
+      # it as hung - see docker/entrypoint.sh's active port-wait.
+      - SERVER_READY_TIMEOUT=30
+      - MAX_UPLOAD_BYTES=52428800
+      - LOG_LEVEL=INFO
+    # /dev/shm defaults to 64MB in Docker, which is often too little for
+    # Chrome/Chromium (via DrissionPage/nodriver) during frequent page
+    # reloads while solving the Cloudflare challenge - it either crashes or
+    # becomes unstable.
+    shm_size: '1gb'
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:8018/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 90s
+      retries: 3
+    restart: unless-stopped

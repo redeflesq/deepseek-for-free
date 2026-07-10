@@ -1,0 +1,104 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "deepseek4free"
+version = "2.0.0"
+description = "Unofficial DeepSeek chat client + HTTP server with Cloudflare bypass support"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+
+# Pinned exactly as in the old requirements.txt (pip freeze from a working
+# image) - that file's own comment warns curl_cffi/fastapi/starlette/
+# python-multipart already broke the project once on an unpinned upgrade,
+# so versions are carried over unchanged rather than "modernized" blindly.
+dependencies = [
+    "curl-cffi==0.8.1b9",
+    "wasmtime==46.0.1",
+    "numpy==2.4.6",
+    "nodriver==0.50.3",
+    "DrissionPage==4.1.1.4",
+    "python-dotenv==1.2.2",
+    "fastapi==0.139.0",
+    "starlette==1.3.1",
+    "uvicorn==0.51.0",
+    "pydantic==2.13.4",
+    "pydantic-settings==2.7.1",
+    "python-multipart==0.0.32",
+    "PyVirtualDisplay==3.0",
+    "requests==2.34.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest==8.3.4",
+    "pytest-asyncio==0.25.2",
+    "ruff==0.9.3",
+    "mypy==1.14.1",
+]
+
+# Three separate processes, matching the three separate entry points the
+# old layout had as bare scripts (example.py, chat_cli.py) plus the
+# cloudflare bypass service that used to only be runnable via
+# `python -m dsk.server` / `python -m dsk.bypass`.
+[project.scripts]
+deepseek4free-server = "deepseek4free.server.app:main"
+deepseek4free-ollama-server = "deepseek4free.server.ollama_compat.app:main"
+deepseek4free-chat = "deepseek4free.cli.chat:main"
+deepseek4free-bypass-server = "deepseek4free.cloudflare.bypass_server:main"
+deepseek4free-refresh-cookies = "deepseek4free.cloudflare.cookie_refresher:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+# The PoW solver loads its .wasm asset from pow/wasm/ at runtime via a path
+# relative to __file__ (see pow/solver.py) - this makes sure `pip install .`
+# actually ships that binary file inside the installed package instead of
+# silently dropping it (setuptools excludes non-.py files from packages by
+# default unless declared here).
+[tool.setuptools.package-data]
+"deepseek4free.pow" = ["wasm/*.wasm"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: real-network smoke tests, skipped by default without a configured DEEPSEEK_AUTH_TOKEN",
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+# FastAPI's own dependency-injection pattern is `param: T = Depends(...)`
+# (and `= File(...)`) - these calls are evaluated once per request by
+# Starlette's dependency resolver, not a shared mutable default in the
+# usual B008 sense. Without this, every route in server/routes/*.py and
+# server/ollama_compat/routes.py trips B008, which isn't a real bug here.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.File",
+    "fastapi.Query",
+    # server/routes/sessions.py's create_session() default-instantiates its
+    # (fieldless) request-body schema the same way - same false positive.
+    "deepseek4free.server.schemas.CreateSessionRequest",
+]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true
+warn_unused_ignores = true
+
+# `requests` ships no inline type markers and this project intentionally
+# doesn't add a `types-requests` runtime/dev dependency just to satisfy
+# mypy for the couple of call sites that use it (cookie_refresher.py) -
+# ignore_missing_imports alone doesn't suppress this specific
+# stubs-not-installed diagnostic (import-untyped) on some mypy versions.
+[[tool.mypy.overrides]]
+module = "requests.*"
+ignore_missing_imports = true
