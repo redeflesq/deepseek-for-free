@@ -1,5 +1,9 @@
 # deepseek4free
 
+> This project is no longer maintained and has been moved to a new repository.
+> Please use the updated version here:
+> https://github.com/redeflesq/ai-for-free
+
 Unofficial Python client and local HTTP server for `chat.deepseek.com`,
 with an automated Cloudflare-challenge bypass built in.
 
